@@ -16,7 +16,8 @@ package k8s
 import (
 	projectcontour "github.com/projectcontour/contour/apis/projectcontour/v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/api/networking/v1beta1"
+	discovery "k8s.io/api/discovery/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -33,7 +34,9 @@ func KindOf(obj interface{}) string {
 		return "Service"
 	case *v1.Endpoints:
 		return "Endpoints"
-	case *v1beta1.Ingress:
+	case *discovery.EndpointSlice:
+		return "EndpointSlice"
+	case *networking.Ingress:
 		return "Ingress"
 	case *projectcontour.HTTPProxy:
 		return "HTTPProxy"

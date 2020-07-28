@@ -5,7 +5,8 @@ import (
 
 	projectcontour "github.com/projectcontour/contour/apis/projectcontour/v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/api/networking/v1beta1"
+	discovery "k8s.io/api/discovery/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -17,8 +18,9 @@ func TestKindOf(t *testing.T) {
 		{"Secret", &v1.Secret{}},
 		{"Service", &v1.Service{}},
 		{"Endpoints", &v1.Endpoints{}},
+		{"EndpointSlice", &discovery.EndpointSlice{}},
 		{"", &v1.Pod{}},
-		{"Ingress", &v1beta1.Ingress{}},
+		{"Ingress", &networking.Ingress{}},
 		{"HTTPProxy", &projectcontour.HTTPProxy{}},
 		{"TLSCertificateDelegation", &projectcontour.TLSCertificateDelegation{}},
 		{"Foo", &unstructured.Unstructured{

@@ -14,10 +14,12 @@
 package contour
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -43,6 +45,21 @@ func endpoints(ns, name string, subsets ...v1.EndpointSubset) *v1.Endpoints {
 			Namespace: ns,
 		},
 		Subsets: subsets,
+	}
+}
+
+func endpointSlice(ns, name string, endpoints []discovery.Endpoint, ports []discovery.EndpointPort) *discovery.EndpointSlice {
+	return &discovery.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+			Labels: map[string]string{
+				discovery.LabelServiceName: name[:strings.LastIndex(name, "-")],
+			},
+		},
+		AddressType: discovery.AddressTypeIPv4,
+		Endpoints:   endpoints,
+		Ports:       ports,
 	}
 }
 

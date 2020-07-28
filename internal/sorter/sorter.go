@@ -19,6 +19,7 @@ import (
 
 	v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_auth "github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
+	envoy_api_v2_endpoint "github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
 	envoy_api_v2_listener "github.com/envoyproxy/go-control-plane/envoy/api/v2/listener"
 	envoy_api_v2_route "github.com/envoyproxy/go-control-plane/envoy/api/v2/route"
 	tcp "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/tcp_proxy/v2"
@@ -137,6 +138,17 @@ func (s clusterLoadAssignmentSorter) Len() int           { return len(s) }
 func (s clusterLoadAssignmentSorter) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s clusterLoadAssignmentSorter) Less(i, j int) bool { return s[i].ClusterName < s[j].ClusterName }
 
+// Sorts LB endpoints by address.
+type lbEndpointSorter []*envoy_api_v2_endpoint.LbEndpoint
+
+func (s lbEndpointSorter) Len() int           { return len(s) }
+func (s lbEndpointSorter) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s lbEndpointSorter) Less(i, j int) bool { return getSocketAddress(s[i]) < getSocketAddress(s[j]) }
+
+func getSocketAddress(lbendpoint *envoy_api_v2_endpoint.LbEndpoint) string {
+	return lbendpoint.GetEndpoint().GetAddress().GetSocketAddress().GetAddress()
+}
+
 // Sorts the weighted clusters by name, then by weight.
 type httpWeightedClusterSorter []*envoy_api_v2_route.WeightedCluster_ClusterWeight
 
@@ -219,6 +231,8 @@ func For(v interface{}) sort.Interface {
 		return clusterSorter(v)
 	case []*v2.ClusterLoadAssignment:
 		return clusterLoadAssignmentSorter(v)
+	case []*envoy_api_v2_endpoint.LbEndpoint:
+		return lbEndpointSorter(v)
 	case []*envoy_api_v2_route.WeightedCluster_ClusterWeight:
 		return httpWeightedClusterSorter(v)
 	case []*tcp.TcpProxy_WeightedCluster_ClusterWeight:

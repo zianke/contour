@@ -17,7 +17,8 @@ import (
 	projectcontour "github.com/projectcontour/contour/apis/projectcontour/v1"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/api/networking/v1beta1"
+	discovery "k8s.io/api/discovery/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	serviceapis "sigs.k8s.io/service-apis/api/v1alpha1"
 )
@@ -34,7 +35,7 @@ func DefaultResources() []schema.GroupVersionResource {
 		projectcontour.HTTPProxyGVR,
 		projectcontour.TLSCertificateDelegationGVR,
 		corev1.SchemeGroupVersion.WithResource("services"),
-		v1beta1.SchemeGroupVersion.WithResource("ingresses"),
+		networking.SchemeGroupVersion.WithResource("ingresses"),
 	}
 }
 
@@ -65,6 +66,15 @@ func SecretsResources() []schema.GroupVersionResource {
 func EndpointsResources() []schema.GroupVersionResource {
 	return []schema.GroupVersionResource{
 		corev1.SchemeGroupVersion.WithResource("endpoints"),
+	}
+}
+
+// +kubebuilder:rbac:groups="discovery.k8s.io",resources=endpointslices,verbs=get;list;watch
+
+// EndpointSlicesResources ...
+func EndpointSlicesResources() []schema.GroupVersionResource {
+	return []schema.GroupVersionResource{
+		discovery.SchemeGroupVersion.WithResource("endpointslices"),
 	}
 }
 
