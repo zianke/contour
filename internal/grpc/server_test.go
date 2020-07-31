@@ -21,7 +21,7 @@ import (
 	"time"
 
 	v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
+	envoy_discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v2"
 	"github.com/projectcontour/contour/internal/contour"
 	"github.com/projectcontour/contour/internal/metrics"
@@ -31,14 +31,16 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1beta1"
 	"k8s.io/api/networking/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/pointer"
 )
 
 func TestGRPC(t *testing.T) {
-	// tr and et is recreated before the start of each test.
-	var et *contour.EndpointsTranslator
+	// et and eh are recreated before the start of each test.
+	var et *contour.EndpointSliceTranslator
 	var eh *contour.EventHandler
 
 	tests := map[string]func(*testing.T, *grpc.ClientConn){
@@ -69,21 +71,27 @@ func TestGRPC(t *testing.T) {
 			checkrecv(t, stream)                     // check we receive one notification
 			checktimeout(t, stream)                  // check that the second receive times out
 		},
-		"StreamEndpoints": func(t *testing.T, cc *grpc.ClientConn) {
-			et.OnAdd(&v1.Endpoints{
+		"StreamEndpointSlices": func(t *testing.T, cc *grpc.ClientConn) {
+			et.OnAdd(&discovery.EndpointSlice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "kube-scheduler",
 					Namespace: "kube-system",
 				},
-				Subsets: []v1.EndpointSubset{{
-					Addresses: []v1.EndpointAddress{{
-						IP: "130.211.139.167",
-					}},
-					Ports: []v1.EndpointPort{{
-						Port: 80,
-					}, {
-						Port: 443,
-					}},
+				AddressType: discovery.AddressTypeIPv4,
+				Endpoints: []discovery.Endpoint{{
+					Addresses: []string{
+						"130.211.139.167",
+					},
+					Conditions: discovery.EndpointConditions{
+						Ready: pointer.BoolPtr(true),
+					},
+				}},
+				Ports: []discovery.EndpointPort{{
+					Name: pointer.StringPtr("http"),
+					Port: pointer.Int32Ptr(80),
+				}, {
+					Name: pointer.StringPtr("https"),
+					Port: pointer.Int32Ptr(443),
 				}},
 			})
 
@@ -173,7 +181,7 @@ func TestGRPC(t *testing.T) {
 				},
 			})
 
-			sds := discovery.NewSecretDiscoveryServiceClient(cc)
+			sds := envoy_discovery.NewSecretDiscoveryServiceClient(cc)
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			stream, err := sds.StreamSecrets(ctx)
@@ -188,7 +196,7 @@ func TestGRPC(t *testing.T) {
 	log.SetOutput(ioutil.Discard)
 	for name, fn := range tests {
 		t.Run(name, func(t *testing.T) {
-			et = &contour.EndpointsTranslator{
+			et = &contour.EndpointSliceTranslator{
 				FieldLogger: log,
 			}
 			ch := contour.CacheHandler{

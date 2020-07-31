@@ -23,7 +23,7 @@ import (
 	"time"
 
 	v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
+	envoy_discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v2"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/any"
@@ -40,7 +40,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 )
@@ -71,7 +71,7 @@ func setupWithFallbackCert(t *testing.T, fallbackCertName, fallbackCertNamespace
 	log := logrus.New()
 	log.Out = new(discardWriter)
 
-	et := &contour.EndpointsTranslator{
+	et := &contour.EndpointSliceTranslator{
 		FieldLogger: log,
 	}
 
@@ -142,9 +142,9 @@ func setupWithFallbackCert(t *testing.T, fallbackCertName, fallbackCertNamespace
 	check(t, err)
 
 	rh := &resourceEventHandler{
-		EventHandler:        eh,
-		EndpointsTranslator: et,
-		statusCache:         statusCache,
+		EventHandler:            eh,
+		EndpointSliceTranslator: et,
+		statusCache:             statusCache,
 	}
 
 	stop := make(chan struct{})
@@ -173,11 +173,11 @@ func setupWithFallbackCert(t *testing.T, fallbackCertName, fallbackCertNamespace
 		}
 }
 
-// resourceEventHandler composes a contour.EventHandler and a contour.EndpointsTranslator
+// resourceEventHandler composes a contour.EventHandler and a contour.EndpointSliceTranslator
 // into a single ResourceEventHandler type.
 type resourceEventHandler struct {
 	*contour.EventHandler
-	*contour.EndpointsTranslator
+	*contour.EndpointSliceTranslator
 
 	statusCache *k8s.StatusCacher
 }
@@ -188,8 +188,8 @@ func (r *resourceEventHandler) OnAdd(obj interface{}) {
 	}
 
 	switch obj.(type) {
-	case *v1.Endpoints:
-		r.EndpointsTranslator.OnAdd(obj)
+	case *discovery.EndpointSlice:
+		r.EndpointSliceTranslator.OnAdd(obj)
 	default:
 		r.EventHandler.OnAdd(obj)
 		<-r.EventHandler.Sequence
@@ -203,8 +203,8 @@ func (r *resourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 	}
 
 	switch newObj.(type) {
-	case *v1.Endpoints:
-		r.EndpointsTranslator.OnUpdate(oldObj, newObj)
+	case *discovery.EndpointSlice:
+		r.EndpointSliceTranslator.OnUpdate(oldObj, newObj)
 	default:
 		r.EventHandler.OnUpdate(oldObj, newObj)
 		<-r.EventHandler.Sequence
@@ -219,8 +219,8 @@ func (r *resourceEventHandler) OnDelete(obj interface{}) {
 	}
 
 	switch obj.(type) {
-	case *v1.Endpoints:
-		r.EndpointsTranslator.OnDelete(obj)
+	case *discovery.EndpointSlice:
+		r.EndpointSliceTranslator.OnDelete(obj)
 	default:
 		r.EventHandler.OnDelete(obj)
 		<-r.EventHandler.Sequence
@@ -340,7 +340,7 @@ func (c *Contour) Request(typeurl string, names ...string) *Response {
 	defer cancel()
 	switch typeurl {
 	case secretType:
-		sds := discovery.NewSecretDiscoveryServiceClient(c.ClientConn)
+		sds := envoy_discovery.NewSecretDiscoveryServiceClient(c.ClientConn)
 		sts, err := sds.StreamSecrets(ctx)
 		c.check(err)
 		st = sts

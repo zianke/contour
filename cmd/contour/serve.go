@@ -269,10 +269,10 @@ func doServe(log logrus.FieldLogger, ctx *serveContext) error {
 		informerSyncList.InformOnResources(clusterInformerFactory, dynamicHandler, k8s.SecretsResources()...)
 	}
 
-	// step 5. endpoints updates are handled directly by the EndpointsTranslator
+	// step 5. endpoints updates are handled directly by the EndpointSliceTranslator
 	// due to their high update rate and their orthogonal nature.
-	et := &contour.EndpointsTranslator{
-		FieldLogger: log.WithField("context", "endpointstranslator"),
+	et := &contour.EndpointSliceTranslator{
+		FieldLogger: log.WithField("context", "endpointslicetranslator"),
 	}
 
 	informerSyncList.InformOnResources(clusterInformerFactory,
@@ -282,8 +282,8 @@ func doServe(log logrus.FieldLogger, ctx *serveContext) error {
 				Counter: eventHandler.Metrics.EventHandlerOperations,
 			},
 			Converter: converter,
-			Logger:    log.WithField("context", "endpointstranslator"),
-		}, k8s.EndpointsResources()...)
+			Logger:    log.WithField("context", "endpointslicetranslator"),
+		}, k8s.EndpointSlicesResources()...)
 
 	// step 6. setup workgroup runner and register informers.
 	var g workgroup.Group

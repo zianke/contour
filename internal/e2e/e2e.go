@@ -22,7 +22,7 @@ import (
 	"time"
 
 	v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
+	envoy_discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v2"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/any"
@@ -37,7 +37,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1beta1"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -73,7 +73,7 @@ func setup(t *testing.T, opts ...func(*contour.EventHandler)) (cache.ResourceEve
 	log := logrus.New()
 	log.Out = &testWriter{t}
 
-	et := &contour.EndpointsTranslator{
+	et := &contour.EndpointSliceTranslator{
 		FieldLogger: log,
 	}
 
@@ -134,8 +134,8 @@ func setup(t *testing.T, opts ...func(*contour.EventHandler)) (cache.ResourceEve
 	check(t, err)
 
 	rh := &resourceEventHandler{
-		EventHandler:        eh,
-		EndpointsTranslator: et,
+		EventHandler:            eh,
+		EndpointSliceTranslator: et,
 	}
 
 	stop := make(chan struct{})
@@ -160,17 +160,17 @@ func setup(t *testing.T, opts ...func(*contour.EventHandler)) (cache.ResourceEve
 	}
 }
 
-// resourceEventHandler composes a contour.Translator and a contour.EndpointsTranslator
+// resourceEventHandler composes a contour.Translator and a contour.EndpointSliceTranslator
 // into a single ResourceEventHandler type.
 type resourceEventHandler struct {
 	*contour.EventHandler
-	*contour.EndpointsTranslator
+	*contour.EndpointSliceTranslator
 }
 
 func (r *resourceEventHandler) OnAdd(obj interface{}) {
 	switch obj.(type) {
-	case *v1.Endpoints:
-		r.EndpointsTranslator.OnAdd(obj)
+	case *discovery.EndpointSlice:
+		r.EndpointSliceTranslator.OnAdd(obj)
 	default:
 		r.EventHandler.OnAdd(obj)
 		<-r.EventHandler.Sequence
@@ -179,8 +179,8 @@ func (r *resourceEventHandler) OnAdd(obj interface{}) {
 
 func (r *resourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 	switch newObj.(type) {
-	case *v1.Endpoints:
-		r.EndpointsTranslator.OnUpdate(oldObj, newObj)
+	case *discovery.EndpointSlice:
+		r.EndpointSliceTranslator.OnUpdate(oldObj, newObj)
 	default:
 		r.EventHandler.OnUpdate(oldObj, newObj)
 		<-r.EventHandler.Sequence
@@ -189,8 +189,8 @@ func (r *resourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 
 func (r *resourceEventHandler) OnDelete(obj interface{}) {
 	switch obj.(type) {
-	case *v1.Endpoints:
-		r.EndpointsTranslator.OnDelete(obj)
+	case *discovery.EndpointSlice:
+		r.EndpointSliceTranslator.OnDelete(obj)
 	default:
 		r.EventHandler.OnDelete(obj)
 		<-r.EventHandler.Sequence
@@ -238,7 +238,7 @@ func (c *Contour) Request(typeurl string, names ...string) *Response {
 	ctx := context.Background()
 	switch typeurl {
 	case secretType:
-		sds := discovery.NewSecretDiscoveryServiceClient(c.ClientConn)
+		sds := envoy_discovery.NewSecretDiscoveryServiceClient(c.ClientConn)
 		sts, err := sds.StreamSecrets(ctx)
 		c.check(err)
 		st = sts

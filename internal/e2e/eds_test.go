@@ -15,6 +15,7 @@ package e2e
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
@@ -22,7 +23,9 @@ import (
 	"github.com/projectcontour/contour/internal/envoy"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilpointer "k8s.io/utils/pointer"
 )
 
 // test that adding and removing endpoints don't leave turds
@@ -31,22 +34,20 @@ func TestAddRemoveEndpoints(t *testing.T) {
 	rh, cc, done := setup(t)
 	defer done()
 
-	// e1 is a simple endpoint for two hosts, and two ports
+	// e1 is a simple endpointslice for two hosts, and two ports
 	// it has a long name to check that it's clustername is _not_
 	// hashed.
-	e1 := endpoints(
+	e1 := endpointSlice(
 		"super-long-namespace-name-oh-boy",
-		"what-a-descriptive-service-name-you-must-be-so-proud",
-		v1.EndpointSubset{
-			Addresses: addresses(
-				"172.16.0.2",
-				"172.16.0.1",
-			),
-			Ports: ports(
-				port("https", 8443),
-				port("http", 8000),
-			),
-		},
+		"what-a-descriptive-service-name-you-must-be-so-proud-a1b2c",
+		epsliceEndpoints(
+			epsliceEndpoint("172.16.0.2"),
+			epsliceEndpoint("172.16.0.1"),
+		),
+		epslicePorts(
+			epslicePort("https", 8443),
+			epslicePort("http", 8080),
+		),
 	)
 
 	rh.OnAdd(e1)
@@ -57,8 +58,8 @@ func TestAddRemoveEndpoints(t *testing.T) {
 		Resources: resources(t,
 			envoy.ClusterLoadAssignment(
 				"super-long-namespace-name-oh-boy/what-a-descriptive-service-name-you-must-be-so-proud/http",
-				envoy.SocketAddress("172.16.0.1", 8000), // endpoints and cluster names should be sorted
-				envoy.SocketAddress("172.16.0.2", 8000),
+				envoy.SocketAddress("172.16.0.1", 8080), // endpoints and cluster names should be sorted
+				envoy.SocketAddress("172.16.0.2", 8080),
 			),
 			envoy.ClusterLoadAssignment(
 				"super-long-namespace-name-oh-boy/what-a-descriptive-service-name-you-must-be-so-proud/https",
@@ -85,43 +86,55 @@ func TestAddEndpointComplicated(t *testing.T) {
 	rh, cc, done := setup(t)
 	defer done()
 
-	e1 := endpoints(
-		"default",
-		"kuard",
-		v1.EndpointSubset{
-			Addresses: addresses(
-				"10.48.1.78",
-			),
-			NotReadyAddresses: addresses(
-				"10.48.1.77",
-			),
-			Ports: ports(
-				port("foo", 8080),
-			),
-		},
-		v1.EndpointSubset{
-			Addresses: addresses(
-				"10.48.1.78",
-				"10.48.1.77",
-			),
-			Ports: ports(
-				port("admin", 9000),
-			),
-		},
+	e1 := endpointSlice("default", "kuard-a1b2c",
+		epsliceEndpoints(
+			epsliceEndpoint("10.48.1.78"),
+			epsliceEndpointNotReady("10.48.1.77"),
+		),
+		epslicePorts(
+			epslicePort("foo", 8080),
+		),
+	)
+
+	e2 := endpointSlice("default", "kuard-b2c3d",
+		epsliceEndpoints(
+			epsliceEndpoint("10.48.1.78"),
+			epsliceEndpoint("10.48.1.77"),
+		),
+		epslicePorts(
+			epslicePort("admin", 9000),
+		),
+	)
+
+	e3 := endpointSlice("default", "kuard-c3d4e",
+		epsliceEndpoints(
+			epsliceEndpoint("10.48.1.75"),
+			epsliceEndpoint("10.48.1.76"),
+		),
+		epslicePorts(
+			epslicePort("foo", 8080),
+			epslicePort("admin", 9000),
+		),
 	)
 
 	rh.OnAdd(e1)
+	rh.OnAdd(e2)
+	rh.OnAdd(e3)
 
 	assert.Equal(t, &v2.DiscoveryResponse{
 		VersionInfo: "2",
 		Resources: resources(t,
 			envoy.ClusterLoadAssignment(
 				"default/kuard/admin",
+				envoy.SocketAddress("10.48.1.75", 9000), // endpoints and cluster names should be sorted
+				envoy.SocketAddress("10.48.1.76", 9000),
 				envoy.SocketAddress("10.48.1.77", 9000),
 				envoy.SocketAddress("10.48.1.78", 9000),
 			),
 			envoy.ClusterLoadAssignment(
 				"default/kuard/foo",
+				envoy.SocketAddress("10.48.1.75", 8080),
+				envoy.SocketAddress("10.48.1.76", 8080),
 				envoy.SocketAddress("10.48.1.78", 8080),
 			),
 		),
@@ -134,40 +147,48 @@ func TestEndpointFilter(t *testing.T) {
 	rh, cc, done := setup(t)
 	defer done()
 
-	// a single endpoint that represents several
-	// cluster load assignments.
-	e1 := endpoints(
-		"default",
-		"kuard",
-		v1.EndpointSubset{
-			Addresses: addresses(
-				"10.48.1.78",
-			),
-			NotReadyAddresses: addresses(
-				"10.48.1.77",
-			),
-			Ports: ports(
-				port("foo", 8080),
-			),
-		},
-		v1.EndpointSubset{
-			Addresses: addresses(
-				"10.48.1.77",
-				"10.48.1.78",
-			),
-			Ports: ports(
-				port("admin", 9000),
-			),
-		},
+	e1 := endpointSlice("default", "kuard-a1b2c",
+		epsliceEndpoints(
+			epsliceEndpoint("10.48.1.78"),
+			epsliceEndpointNotReady("10.48.1.77"),
+		),
+		epslicePorts(
+			epslicePort("foo", 8080),
+		),
+	)
+
+	e2 := endpointSlice("default", "kuard-b2c3d",
+		epsliceEndpoints(
+			epsliceEndpoint("10.48.1.78"),
+			epsliceEndpoint("10.48.1.77"),
+		),
+		epslicePorts(
+			epslicePort("admin", 9000),
+		),
+	)
+
+	e3 := endpointSlice("default", "kuard-c3d4e",
+		epsliceEndpoints(
+			epsliceEndpoint("10.48.1.75"),
+			epsliceEndpoint("10.48.1.76"),
+		),
+		epslicePorts(
+			epslicePort("foo", 8080),
+			epslicePort("admin", 9000),
+		),
 	)
 
 	rh.OnAdd(e1)
+	rh.OnAdd(e2)
+	rh.OnAdd(e3)
 
 	assert.Equal(t, &v2.DiscoveryResponse{
 		VersionInfo: "2",
 		Resources: resources(t,
 			envoy.ClusterLoadAssignment(
 				"default/kuard/foo",
+				envoy.SocketAddress("10.48.1.75", 8080), // endpoints and cluster names should be sorted
+				envoy.SocketAddress("10.48.1.76", 8080),
 				envoy.SocketAddress("10.48.1.78", 8080),
 			),
 		),
@@ -192,15 +213,17 @@ func TestIssue602(t *testing.T) {
 	rh, cc, done := setup(t)
 	defer done()
 
-	e1 := endpoints("default", "simple", v1.EndpointSubset{
-		Addresses: addresses("192.168.183.24"),
-		Ports: ports(
-			port("", 8080),
+	e1 := endpointSlice("default", "simple-a1b2c",
+		epsliceEndpoints(
+			epsliceEndpoint("192.168.183.24"),
 		),
-	})
+		epslicePorts(
+			epslicePort("", 8080),
+		),
+	)
 	rh.OnAdd(e1)
 
-	// Assert endpoint was added
+	// Assert endpointslice was added
 	assert.Equal(t, &v2.DiscoveryResponse{
 		VersionInfo: "1",
 		Resources: resources(t,
@@ -210,8 +233,8 @@ func TestIssue602(t *testing.T) {
 		Nonce:   "1",
 	}, streamEDS(t, cc))
 
-	// e2 is the same as e1, but without endpoint subsets
-	e2 := endpoints("default", "simple")
+	// e2 is the same as e1, but without any endpoints or ports
+	e2 := endpointSlice("default", "simple-a1b2c", nil, nil)
 	rh.OnUpdate(e1, e2)
 
 	assert.Equal(t, &v2.DiscoveryResponse{
@@ -233,32 +256,49 @@ func streamEDS(t *testing.T, cc *grpc.ClientConn, rn ...string) *v2.DiscoveryRes
 	})
 }
 
-func endpoints(ns, name string, subsets ...v1.EndpointSubset) *v1.Endpoints {
-	return &v1.Endpoints{
+func endpointSlice(ns, name string, endpoints []discovery.Endpoint, ports []discovery.EndpointPort) *discovery.EndpointSlice {
+	return &discovery.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ns,
+			Labels: map[string]string{
+				discovery.LabelServiceName: name[:strings.LastIndex(name, "-")],
+			},
 		},
-		Subsets: subsets,
+		AddressType: discovery.AddressTypeIPv4,
+		Endpoints:   endpoints,
+		Ports:       ports,
 	}
 }
 
-func ports(eps ...v1.EndpointPort) []v1.EndpointPort {
+func epslicePorts(eps ...discovery.EndpointPort) []discovery.EndpointPort {
 	return eps
 }
 
-func port(name string, port int32) v1.EndpointPort {
-	return v1.EndpointPort{
-		Name:     name,
-		Port:     port,
-		Protocol: "TCP",
+func epslicePort(name string, port int32) discovery.EndpointPort {
+	protocol := v1.ProtocolTCP
+	return discovery.EndpointPort{
+		Name:     &name,
+		Port:     &port,
+		Protocol: &protocol,
 	}
 }
 
-func addresses(ips ...string) []v1.EndpointAddress {
-	var addrs []v1.EndpointAddress
-	for _, ip := range ips {
-		addrs = append(addrs, v1.EndpointAddress{IP: ip})
+func epsliceEndpoints(eps ...discovery.Endpoint) []discovery.Endpoint {
+	return eps
+}
+
+func epsliceEndpoint(ips ...string) discovery.Endpoint {
+	return discovery.Endpoint{
+		Addresses: ips,
+		Conditions: discovery.EndpointConditions{
+			Ready: utilpointer.BoolPtr(true),
+		},
 	}
-	return addrs
+}
+
+func epsliceEndpointNotReady(ips ...string) discovery.Endpoint {
+	ep := epsliceEndpoint(ips...)
+	ep.Conditions.Ready = utilpointer.BoolPtr(false)
+	return ep
 }
